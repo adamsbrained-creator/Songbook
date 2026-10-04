@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Beamed eighth notes, kept inside the 66dp safe zone of the 108dp adaptive icon. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:scaleX="0.88"
+        android:scaleY="0.88"
+        android:translateX="-2"
+        android:translateY="1">
+        <path android:pathData="M35,71a8,8 0 1,0 16,0a8,8 0 1,0 -16,0z M61,65a8,8 0 1,0 16,0a8,8 0 1,0 -16,0z M45,35h6v36h-6z M71,27h6v38h-6z M45,35L77,27L77,38L45,46z">
+            <aapt:attr name="android:fillColor">
+                <gradient
+                    android:type="linear"
+                    android:startX="0"
+                    android:startY="27"
+                    android:endX="0"
+                    android:endY="79">
+                    <item android:color="#FFFFFFFF" android:offset="0.0" />
+                    <item android:color="#FFFFC9D5" android:offset="1.0" />
+                </gradient>
+            </aapt:attr>
+        </path>
+    </group>
+</vector>
