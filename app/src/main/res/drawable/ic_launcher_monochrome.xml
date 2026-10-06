@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Single-color version used by Android 13+ themed icons. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:pivotX="54"
+        android:pivotY="54"
+        android:scaleX="0.9"
+        android:scaleY="0.9">
+        <path android:fillColor="#FF000000" android:pathData="M49.59,70.73C51.25,74.46 48.31,79.40 43.01,81.76C37.71,84.12 32.07,83.00 30.41,79.27C28.75,75.54 31.69,70.60 36.99,68.24C42.29,65.88 47.93,67.00 49.59,70.73z M77.59,64.73C79.25,68.46 76.31,73.40 71.01,75.76C65.71,78.12 60.07,77.00 58.41,73.27C56.75,69.54 59.69,64.60 64.99,62.24C70.29,59.88 75.93,61.00 77.59,64.73z M45.00,35.00L50.00,33.70L50.00,76.00L45.00,76.00z M73.00,26.50L78.00,25.20L78.00,70.00L73.00,70.00z M45.00,35.00L78.00,26.50L78.00,35.50L45.00,44.00z M45.00,47.50L78.00,39.00L78.00,45.80L45.00,54.30z" />
+    </group>
+</vector>
