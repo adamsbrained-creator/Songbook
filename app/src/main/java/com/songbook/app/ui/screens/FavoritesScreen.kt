@@ -48,7 +48,9 @@ fun FavoritesScreen(
     onMenu: (Long) -> Unit,
     onNavigate: (String) -> Unit,
     onSettings: () -> Unit,
-    onNew: () -> Unit
+    onNew: () -> Unit,
+    /** 0 = list, 2 / 3 = tiles (Settings ▸ Layout). */
+    layout: Int = 0
 ) {
     val c = Sb.colors
     val style = Sb.style
@@ -105,6 +107,24 @@ fun FavoritesScreen(
         }
         if (favs.isEmpty()) {
             item { EmptyHint("Tap the heart on any song and it will show up here.") }
+        } else if (layout >= 2) {
+            item { Box(Modifier.height(10.dp)) }
+            favs.chunked(layout).forEach { row ->
+                item(key = "fr" + row.first().id) {
+                    androidx.compose.foundation.layout.Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        row.forEach { s ->
+                            com.songbook.app.ui.components.SongGridCell(
+                                s, albumNames[s.albumId] ?: "No album", layout,
+                                { onOpenSong(s.id) }, { onToggleFavorite(s) }, { onMenu(s.id) }, Modifier.weight(1f)
+                            )
+                        }
+                        repeat(layout - row.size) { Box(Modifier.weight(1f)) }
+                    }
+                }
+            }
         } else if (cards) {
             item { Box(Modifier.height(6.dp)) }
             favs.forEachIndexed { i, s -> item(key = s.id) { FavItem(s, i == favs.lastIndex, true) } }

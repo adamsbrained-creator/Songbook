@@ -128,14 +128,27 @@ fun GradientPicker(selected: Int, onSelect: (Int) -> Unit) {
     }
 }
 
-/** Pick a gradient or upload your own picture. [onPick] gets the final gradient and image file (or null). */
+/**
+ * Pick a gradient or upload your own picture. [onPick] gets the final gradient and image file (or null).
+ * With [onReset] (songs inside an album) a "Use album cover" button hands the cover back to the album.
+ */
 @Composable
-fun ArtworkDialog(gradient: Int, image: String?, onPick: (Int, String?) -> Unit, onDismiss: () -> Unit) {
+fun ArtworkDialog(
+    gradient: Int,
+    image: String?,
+    onPick: (Int, String?) -> Unit,
+    onDismiss: () -> Unit,
+    onReset: (() -> Unit)? = null
+) {
+    val c = Sb.colors
     var g by remember { mutableIntStateOf(gradient) }
     var img by remember { mutableStateOf(image) }
     SbDialog("Artwork", onDismiss, "Done", { onPick(g, img) }) {
         Column(Modifier.verticalScroll(rememberScrollState())) {
             ArtworkEditor(g, img) { ng, ni -> g = ng; img = ni }
+            if (onReset != null) {
+                ChipPill("Use album cover", active = false, onClick = onReset, inactiveBg = c.track, modifier = Modifier.padding(top = 14.dp))
+            }
         }
     }
 }
@@ -167,6 +180,8 @@ fun EditCoverDialog(
     typePresets: List<String>,
     typeDefault: String,
     onDismiss: () -> Unit,
+    /** A line of help shown under the cover choices. */
+    note: String? = null,
     onSave: (CoverEdit) -> Unit
 ) {
     var name by remember { mutableStateOf(name0) }
@@ -210,6 +225,7 @@ fun EditCoverDialog(
             RatingRow(rating) { ratingOpen = true }
             BadgeRow(badge, badgeColor, onClick = { badgeOpen = true })
             ArtworkEditor(gradient, image) { g, img -> gradient = g; image = img }
+            if (note != null) Text(note, style = sbStyle(12, color = Sb.colors.mu))
         }
     }
 }
@@ -272,7 +288,8 @@ fun ReadingDialog(
     chordSize: Int,
     lineSpacing: Float,
     chordOffset: Int,
-    onCommit: (lyrics: Int, chord: Int, spacing: Float, offset: Int) -> Unit,
+    sectionSize: Int,
+    onCommit: (lyrics: Int, chord: Int, spacing: Float, offset: Int, section: Int) -> Unit,
     onDismiss: () -> Unit,
     songTheme: Int? = null,
     onSongTheme: ((Int) -> Unit)? = null
@@ -282,6 +299,7 @@ fun ReadingDialog(
     var ch by remember { mutableIntStateOf(chordSize) }
     var s by remember { mutableFloatStateOf(lineSpacing) }
     var off by remember { mutableIntStateOf(chordOffset) }
+    var sec by remember { mutableIntStateOf(sectionSize) }
     var theme by remember { mutableIntStateOf(songTheme ?: 0) }
     val colors = SliderDefaults.colors(thumbColor = c.ac, activeTrackColor = c.ac, inactiveTrackColor = c.ln)
 
@@ -290,30 +308,56 @@ fun ReadingDialog(
             Text("Lyrics font size · $l pt", style = sbStyle(13, FontWeight.Medium, c.tx))
             Slider(
                 value = l.toFloat(), onValueChange = { l = it.roundToInt() },
-                onValueChangeFinished = { onCommit(l, ch, s, off) },
+                onValueChangeFinished = { onCommit(l, ch, s, off, sec) },
                 valueRange = 12f..28f, steps = 15, colors = colors
             )
             Text("Chord size · $ch pt", style = sbStyle(13, FontWeight.Medium, c.tx))
             Slider(
                 value = ch.toFloat(), onValueChange = { ch = it.roundToInt() },
-                onValueChangeFinished = { onCommit(l, ch, s, off) },
+                onValueChangeFinished = { onCommit(l, ch, s, off, sec) },
                 valueRange = 10f..22f, steps = 11, colors = colors
             )
             Text("Chord distance · ${chordOffsetLabel(off)}", style = sbStyle(13, FontWeight.Medium, c.tx))
             Slider(
                 value = off.toFloat(), onValueChange = { off = it.roundToInt() },
-                onValueChangeFinished = { onCommit(l, ch, s, off) },
-                valueRange = -6f..16f, steps = 21, colors = colors
+                onValueChangeFinished = { onCommit(l, ch, s, off, sec) },
+                valueRange = -14f..16f, steps = 29, colors = colors
+            )
+            Text("Section titles · $sec pt", style = sbStyle(13, FontWeight.Medium, c.tx))
+            Slider(
+                value = sec.toFloat(), onValueChange = { sec = it.roundToInt() },
+                onValueChangeFinished = { onCommit(l, ch, s, off, sec) },
+                valueRange = 9f..30f, steps = 20, colors = colors
             )
             Text("Line spacing · ${"%.1f".format(s)}×", style = sbStyle(13, FontWeight.Medium, c.tx))
             Slider(
                 value = s, onValueChange = { s = (it * 10).roundToInt() / 10f },
-                onValueChangeFinished = { onCommit(l, ch, s, off) },
+                onValueChangeFinished = { onCommit(l, ch, s, off, sec) },
                 valueRange = 1.0f..2.0f, steps = 9, colors = colors
             )
             if (songTheme != null && onSongTheme != null) {
                 Text("Song page theme", style = sbStyle(13, FontWeight.Medium, c.tx), modifier = Modifier.padding(top = 8.dp, bottom = 8.dp))
                 Segmented(listOf("Match app", "Dark", "Light"), theme) { theme = it; onSongTheme(it) }
+            }
+        }
+    }
+}
+
+/** A list of choices with the current one marked. Tapping one picks it and closes the dialog. */
+@Composable
+fun ChoiceDialog(title: String, options: List<String>, selected: Int, onPick: (Int) -> Unit, onDismiss: () -> Unit) {
+    val c = Sb.colors
+    SbDialog(title, onDismiss) {
+        Column(Modifier.verticalScroll(rememberScrollState())) {
+            options.forEachIndexed { i, label ->
+                Row(
+                    Modifier.fillMaxWidth().height(46.dp).clip(RoundedCornerShape(12.dp)).clickable { onPick(i) },
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(label, style = sbStyle(15, if (i == selected) FontWeight.SemiBold else FontWeight.Medium, if (i == selected) c.ac else c.tx))
+                    if (i == selected) StrokeIcon(SbIcons.Check, c.ac, size = 20.dp)
+                }
             }
         }
     }

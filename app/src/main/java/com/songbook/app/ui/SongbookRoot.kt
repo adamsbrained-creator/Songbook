@@ -32,7 +32,16 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.songbook.app.applySystemBars
+import com.songbook.app.data.AlbumSort
 import com.songbook.app.data.SongEntity
+import com.songbook.app.data.SongSort
+import com.songbook.app.data.TrackSort
+import com.songbook.app.data.inAlbumOrder
+import com.songbook.app.data.sideList
+import com.songbook.app.data.sortedAlbums
+import com.songbook.app.data.sortedGroups
+import com.songbook.app.data.sortedSongs
+import com.songbook.app.data.withAlbumCover
 import com.songbook.app.data.Stage
 import com.songbook.app.data.ThemeMode
 import com.songbook.app.data.UiStyle
@@ -47,7 +56,12 @@ import com.songbook.app.ui.components.SongMenuSheet
 import com.songbook.app.ui.components.TopDests
 import com.songbook.app.ui.components.greetingLine
 import com.songbook.app.ui.components.songType
+import com.songbook.app.ui.screens.AlbumActions
 import com.songbook.app.ui.screens.AlbumScreen
+import com.songbook.app.ui.screens.AlbumsActions
+import com.songbook.app.ui.screens.ArrangeItem
+import com.songbook.app.ui.screens.ArrangeScreen
+import com.songbook.app.ui.screens.GroupActions
 import com.songbook.app.ui.screens.AlbumsScreen
 import com.songbook.app.ui.screens.DeskScreen
 import com.songbook.app.ui.screens.EditorScreen
@@ -69,7 +83,7 @@ import com.songbook.app.ui.theme.SongbookTheme
 fun SongbookRoot(vm: AppViewModel = viewModel()) {
     val settings by vm.settings.collectAsStateWithLifecycle()
     val settingsLoaded by vm.settingsLoaded.collectAsStateWithLifecycle()
-    val allSongs by vm.songs.collectAsStateWithLifecycle()
+    val dbSongs by vm.songs.collectAsStateWithLifecycle()
     val albums by vm.albums.collectAsStateWithLifecycle()
     val groups by vm.groups.collectAsStateWithLifecycle()
     val loaded by vm.loaded.collectAsStateWithLifecycle()
@@ -116,6 +130,10 @@ fun SongbookRoot(vm: AppViewModel = viewModel()) {
         var searchTick by remember { mutableIntStateOf(0) }
         val albumNames = remember(albums) { albums.associate { it.id to it.name } }
 
+        // Songs are drawn with the cover of their album (unless the cover was chosen by hand). These copies are
+        // only for drawing; everything that saves goes through the view model, which reads the stored song.
+        val albumsById = remember(albums) { albums.associateBy { it.id } }
+        val allSongs = remember(dbSongs, albumsById) { dbSongs.map { it.withAlbumCover(albumsById) } }
         // Ideas live on the Workflow page only; every other screen sees the songs without them.
         val songs = remember(allSongs) { allSongs.filter { it.stage != Stage.IDEA } }
         val workflowCount = remember(allSongs) { allSongs.count { it.stage < Stage.DONE } }
@@ -153,12 +171,15 @@ fun SongbookRoot(vm: AppViewModel = viewModel()) {
                             onOpenAlbum = { nav.navigate("album/$it") },
                             onToggleFavorite = vm::toggleFavorite,
                             onMenu = { menuSongId = it },
-                            onToggleLayout = { vm.edit { setSongsGrid(!settings.songsGrid) } },
                             onOpenWorkflow = { nav.navigate("workflow") },
                             onNew = { newSong = NewSongRequest() },
                             onNavigate = ::navigateTop,
                             onSettings = { navigateTop("settings") },
-                            onCycleFace = { vm.edit { setCardFace((settings.cardFace + 1) % 3) } }
+                            onCycleFace = { vm.edit { setCardFace((settings.cardFace + 1) % 3) } },
+                            onSongSort = { v -> vm.edit { setSongSort(v) } },
+                            onSongsLayout = { v -> vm.edit { setSongsLayout(v) } },
+                            onArrangeSongs = { nav.navigate("arrange/songs/0") },
+                            onSaveHome = { v -> vm.edit { setHomeLayout(v) } }
                         )
                     )
                 }
@@ -167,16 +188,23 @@ fun SongbookRoot(vm: AppViewModel = viewModel()) {
                         albums = albums,
                         songs = songs,
                         groups = groups,
-                        columns = settings.gridColumns,
+                        settings = settings,
                         workflowCount = workflowCount,
                         ideaCount = ideaCount,
-                        onOpenAlbum = { nav.navigate("album/$it") },
-                        onOpenGroup = { nav.navigate("group/$it") },
-                        onCreateAlbum = { vm.createAlbum(it) },
-                        onCreateGroup = { name, ids -> vm.createGroup(name, ids) },
-                        onOpenWorkflow = { nav.navigate("workflow") },
-                        onNavigate = ::navigateTop,
-                        onSettings = { navigateTop("settings") }
+                        actions = AlbumsActions(
+                            onOpenAlbum = { nav.navigate("album/$it") },
+                            onOpenGroup = { nav.navigate("group/$it") },
+                            onCreateAlbum = { vm.createAlbum(it) },
+                            onCreateGroup = { name, ids -> vm.createGroup(name, ids) },
+                            onOpenWorkflow = { nav.navigate("workflow") },
+                            onNavigate = ::navigateTop,
+                            onSettings = { navigateTop("settings") },
+                            onAlbumSort = { v -> vm.edit { setAlbumSort(v) } },
+                            onAlbumColumns = { v -> vm.edit { setAlbumColumns(v) } },
+                            onGroupColumns = { v -> vm.edit { setGroupColumns(v) } },
+                            onArrange = { kind -> nav.navigate("arrange/$kind/0") },
+                            onSaveLayout = { v -> vm.edit { setAlbumsLayout(v) } }
+                        )
                     )
                 }
                 composable("favorites") {
@@ -188,7 +216,8 @@ fun SongbookRoot(vm: AppViewModel = viewModel()) {
                         onMenu = { menuSongId = it },
                         onNavigate = ::navigateTop,
                         onSettings = { navigateTop("settings") },
-                        onNew = { newSong = NewSongRequest() }
+                        onNew = { newSong = NewSongRequest() },
+                        layout = settings.favLayout
                     )
                 }
                 composable("settings") {
@@ -202,7 +231,7 @@ fun SongbookRoot(vm: AppViewModel = viewModel()) {
                         onBack = { nav.popBackStack() },
                         onOpenSong = ::openSong,
                         onOpenDesk = { nav.navigate("desk/$it") },
-                        onUpdateSong = vm::updateSongQuietly,
+                        onPatch = { id, change -> vm.patchSong(id, change = change) },
                         onNewIdea = { newSong = NewSongRequest(stage = Stage.IDEA) }
                     )
                 }
@@ -210,7 +239,7 @@ fun SongbookRoot(vm: AppViewModel = viewModel()) {
                 composable("desk/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) { entry ->
                     val id = entry.arguments!!.getLong("id")
                     if (!loaded) Box(Modifier.fillMaxSize()) else DeskScreen(
-                        song = allSongs.firstOrNull { it.id == id },
+                        song = dbSongs.firstOrNull { it.id == id },
                         onBack = { nav.popBackStack() },
                         onSave = { vm.saveSong(it) },
                         onEditText = { nav.navigate("edit/$it") }
@@ -222,14 +251,23 @@ fun SongbookRoot(vm: AppViewModel = viewModel()) {
                     if (!loaded) Box(Modifier.fillMaxSize()) else AlbumScreen(
                         album = albums.firstOrNull { it.id == id },
                         songs = songs,
+                        settings = settings,
                         userName = settings.userName,
-                        onBack = { nav.popBackStack() },
-                        onOpenSong = ::openSong,
-                        onToggleFavorite = vm::toggleFavorite,
-                        onMenu = { menuSongId = it },
-                        onAddSong = { newSong = NewSongRequest(it) },
-                        onUpdateAlbum = vm::updateAlbum,
-                        onDeleteAlbum = vm::deleteAlbum
+                        actions = AlbumActions(
+                            onBack = { nav.popBackStack() },
+                            onOpenSong = ::openSong,
+                            onToggleFavorite = vm::toggleFavorite,
+                            onMenu = { menuSongId = it },
+                            onAddSong = { newSong = NewSongRequest(it) },
+                            onUpdateAlbum = vm::updateAlbum,
+                            onDeleteAlbum = vm::deleteAlbum,
+                            onTrackLayout = { v -> vm.edit { setTrackLayout(v) } },
+                            onTrackSort = { v -> vm.edit { setTrackSort(v) } },
+                            onArrange = { nav.navigate("arrange/tracks/$it") },
+                            onSetSides = { album, names -> vm.setAlbumSides(album, names) },
+                            onRemoveSide = { album, index -> vm.removeAlbumSide(album, index) },
+                            onFollowCover = vm::followAlbumCover
+                        )
                     )
                 }
 
@@ -239,13 +277,61 @@ fun SongbookRoot(vm: AppViewModel = viewModel()) {
                         group = groups.firstOrNull { it.id == id },
                         albums = albums,
                         songs = songs,
-                        columns = settings.gridColumns,
-                        onBack = { nav.popBackStack() },
-                        onOpenAlbum = { nav.navigate("album/$it") },
-                        onUpdateGroup = vm::updateGroup,
-                        onSetMembers = { vm.setGroupMembers(id, it) },
-                        onUngroup = { vm.ungroup(id) }
+                        settings = settings,
+                        actions = GroupActions(
+                            onBack = { nav.popBackStack() },
+                            onOpenAlbum = { nav.navigate("album/$it") },
+                            onUpdateGroup = vm::updateGroup,
+                            onSetMembers = { vm.setGroupMembers(id, it) },
+                            onUngroup = { vm.ungroup(id) },
+                            onArrange = { nav.navigate("arrange/members/$id") }
+                        )
                     )
+                }
+
+                // drag songs, albums and groups into your own order
+                composable(
+                    "arrange/{kind}/{id}",
+                    arguments = listOf(navArgument("kind") { type = NavType.StringType }, navArgument("id") { type = NavType.LongType })
+                ) { entry ->
+                    val kind = entry.arguments!!.getString("kind") ?: "songs"
+                    val id = entry.arguments!!.getLong("id")
+                    if (!loaded) Box(Modifier.fillMaxSize()) else {
+                        val memberCounts = albums.groupingBy { it.groupId }.eachCount()
+                        val groupIds = groups.map { it.id }.toSet()
+                        val loose = albums.filter { it.groupId == null || it.groupId !in groupIds }
+                        fun albumItem(a: com.songbook.app.data.AlbumEntity) =
+                            ArrangeItem(a.id, a.name, a.typeName.ifBlank { "Album" } + " · " + a.year, a.gradient, a.image)
+                        val sides: List<String> = if (kind == "tracks") (albums.firstOrNull { it.id == id }?.sideList ?: emptyList()) else emptyList()
+                        val items: List<ArrangeItem> = when (kind) {
+                            "tracks" -> songs.filter { it.albumId == id }.inAlbumOrder().map {
+                                ArrangeItem(it.id, it.title, songType(it.typeName), it.gradient, it.image, it.side)
+                            }
+                            "albums" -> loose.sortedAlbums(AlbumSort.MANUAL).map(::albumItem)
+                            "members" -> albums.filter { it.groupId == id }.sortedAlbums(AlbumSort.MANUAL).map(::albumItem)
+                            "groups" -> groups.sortedGroups(AlbumSort.MANUAL).map {
+                                ArrangeItem(it.id, it.name, it.typeName.ifBlank { "Group" } + " · " + (memberCounts[it.id] ?: 0) + " albums", it.gradient, it.image)
+                            }
+                            else -> songs.sortedSongs(SongSort.MANUAL, albumNames).map {
+                                ArrangeItem(it.id, it.title, albumNames[it.albumId] ?: "No album", it.gradient, it.image)
+                            }
+                        }
+                        ArrangeScreen(
+                            title = when (kind) { "tracks" -> "Arrange songs"; "albums", "members" -> "Arrange albums"; "groups" -> "Arrange groups"; else -> "Arrange songs" },
+                            items = items,
+                            sides = sides,
+                            onCancel = { nav.popBackStack() },
+                            onDone = { ids ->
+                                when (kind) {
+                                    "tracks" -> { vm.arrange(ArrangeKind.TRACKS, ids); vm.edit { setTrackSort(TrackSort.ALBUM) } }
+                                    "albums", "members" -> { vm.arrange(ArrangeKind.ALBUMS, ids); vm.edit { setAlbumSort(AlbumSort.MANUAL) } }
+                                    "groups" -> { vm.arrange(ArrangeKind.GROUPS, ids); vm.edit { setAlbumSort(AlbumSort.MANUAL) } }
+                                    else -> { vm.arrange(ArrangeKind.SONGS, ids); vm.edit { setSongSort(SongSort.MANUAL) } }
+                                }
+                                nav.popBackStack()
+                            }
+                        )
+                    }
                 }
 
                 composable("song/{id}", arguments = listOf(navArgument("id") { type = NavType.LongType })) { entry ->
@@ -263,12 +349,13 @@ fun SongbookRoot(vm: AppViewModel = viewModel()) {
                             onToggleFavorite = { song?.let(vm::toggleFavorite) },
                             onCapo = { capo, adjust -> song?.let { vm.setCapo(it, capo, adjust) } },
                             onShowTabs = { vm.setShowTabs(it) },
-                            onReading = { l, ch, s, off -> vm.setReading(l, ch, s, off) },
+                            onReading = { l, ch, sp, off, sec -> vm.setReading(l, ch, sp, off, sec) },
                             onLyricsView = { v -> vm.edit { setLyricsView(v) } },
                             onAutoScroll = { vm.setAutoScroll(it) },
                             onScrollSpeed = { v -> vm.edit { setScrollSpeed(v) } },
                             onSongTheme = { v -> vm.edit { setSongTheme(v) } },
-                            onRate = { r -> song?.let { vm.setRating(it, r) } }
+                            onRate = { r -> song?.let { vm.setRating(it, r) } },
+                            onBody = { body -> vm.setBody(id, body) }
                         )
                     )
                 }
@@ -352,7 +439,8 @@ fun SongbookRoot(vm: AppViewModel = viewModel()) {
                             body = input.body,
                             image = input.image,
                             stage = input.stage,
-                            typeName = input.typeName
+                            typeName = input.typeName,
+                            coverManual = input.coverManual
                         )
                     ) { id ->
                         // ideas start on the songwriting desk, songs in the editor
@@ -369,6 +457,7 @@ fun SongbookRoot(vm: AppViewModel = viewModel()) {
                 song = menuSong,
                 albumName = albumNames[menuSong.albumId],
                 albums = albums,
+                sides = albums.firstOrNull { it.id == menuSong.albumId }?.sideList ?: emptyList(),
                 actions = SongMenuActions(
                     onEdit = { nav.navigate("edit/${menuSong.id}") },
                     onDesk = { nav.navigate("desk/${menuSong.id}") },
@@ -381,6 +470,8 @@ fun SongbookRoot(vm: AppViewModel = viewModel()) {
                     onStage = { vm.setStage(menuSong, it) },
                     onRate = { vm.setRating(menuSong, it) },
                     onType = { vm.setType(menuSong, it) },
+                    onSide = { vm.setSide(menuSong, it) },
+                    onUseAlbumCover = { vm.useAlbumCover(menuSong) },
                     onExport = { context.shareSong(menuSong) },
                     onDelete = { vm.deleteSong(menuSong.id) }
                 ),

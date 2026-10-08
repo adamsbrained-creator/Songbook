@@ -35,11 +35,17 @@ import com.songbook.app.ui.theme.sbStyle
 @Composable
 fun GlassTabBar(current: String?, onNavigate: (String) -> Unit, onNew: () -> Unit, modifier: Modifier = Modifier) {
     val c = Sb.colors
-    Row(
-        modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 12.dp).padding(bottom = 12.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
+    Box(modifier.fillMaxWidth()) {
+        // list content fades out under the bar instead of running through it
+        Box(
+            Modifier.matchParentSize()
+                .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(Color.Transparent, c.bg.copy(alpha = 0.96f))))
+        )
+        Row(
+            Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 12.dp).padding(top = 34.dp, bottom = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
         Row(
             Modifier
                 .weight(1f)
@@ -77,6 +83,7 @@ fun GlassTabBar(current: String?, onNavigate: (String) -> Unit, onNew: () -> Uni
                 .semantics { contentDescription = "New song" },
             contentAlignment = Alignment.Center
         ) { StrokeIcon(SbIcons.Plus, Color.White, size = 28.dp) }
+    }
     }
 }
 

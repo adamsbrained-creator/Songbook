@@ -7,6 +7,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -127,6 +128,8 @@ fun Artwork(
     modifier: Modifier = Modifier,
     image: String? = null,
     imagePx: Int = 600,
+    /** Pictures to put together as a collage when there is no [image] (a group of albums). */
+    collage: List<String> = emptyList(),
     content: @Composable BoxScope.() -> Unit = {}
 ) {
     val cover = rememberCover(image, imagePx)
@@ -138,6 +141,8 @@ fun Artwork(
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.matchParentSize()
             )
+        } else if (image == null && collage.isNotEmpty()) {
+            CollageArt(collage, imagePx)
         } else {
             Canvas(Modifier.matchParentSize()) {
                 val w = size.width
@@ -152,6 +157,48 @@ fun Artwork(
     }
 }
 
+/** Up to four album covers cut into one picture: 1 = whole, 2 = halves, 3 = one big and two small, 4 = 2 x 2. */
+@Composable
+private fun BoxScope.CollageArt(names: List<String>, px: Int) {
+    val half = (px / 2).coerceAtLeast(96)
+    val a = rememberCover(names.getOrNull(0), if (names.size == 1) px else half)
+    val b = rememberCover(names.getOrNull(1), half)
+    val c = rememberCover(names.getOrNull(2), half)
+    val d = rememberCover(names.getOrNull(3), half)
+    @Composable
+    fun Cell(bmp: androidx.compose.ui.graphics.ImageBitmap?, m: Modifier) {
+        Box(m) {
+            if (bmp != null) Image(bmp, null, Modifier.matchParentSize(), contentScale = ContentScale.Crop)
+        }
+    }
+    Box(Modifier.matchParentSize()) {
+        when {
+            names.size == 1 -> Cell(a, Modifier.matchParentSize())
+            names.size == 2 -> Row(Modifier.matchParentSize()) {
+                Cell(a, Modifier.weight(1f).fillMaxHeight())
+                Cell(b, Modifier.weight(1f).fillMaxHeight())
+            }
+            names.size == 3 -> Row(Modifier.matchParentSize()) {
+                Cell(a, Modifier.weight(1f).fillMaxHeight())
+                Column(Modifier.weight(1f).fillMaxHeight()) {
+                    Cell(b, Modifier.weight(1f).fillMaxWidth())
+                    Cell(c, Modifier.weight(1f).fillMaxWidth())
+                }
+            }
+            else -> Column(Modifier.matchParentSize()) {
+                Row(Modifier.weight(1f).fillMaxWidth()) {
+                    Cell(a, Modifier.weight(1f).fillMaxHeight())
+                    Cell(b, Modifier.weight(1f).fillMaxHeight())
+                }
+                Row(Modifier.weight(1f).fillMaxWidth()) {
+                    Cell(c, Modifier.weight(1f).fillMaxHeight())
+                    Cell(d, Modifier.weight(1f).fillMaxHeight())
+                }
+            }
+        }
+    }
+}
+
 @Composable
 fun SquareArtwork(
     gradient: Int,
@@ -159,14 +206,15 @@ fun SquareArtwork(
     corner: Dp,
     modifier: Modifier = Modifier,
     elevated: Boolean = false,
-    image: String? = null
+    image: String? = null,
+    collage: List<String> = emptyList()
 ) {
     val shape = RoundedCornerShape(corner)
     val m = if (elevated) {
         modifier.size(size).shadow(10.dp, shape, ambientColor = Color.Black.copy(0.14f), spotColor = Color.Black.copy(0.2f))
     } else modifier.size(size)
     val px = with(LocalDensity.current) { size.roundToPx() }.coerceIn(128, 1024)
-    Artwork(gradient, shape, m, image = image, imagePx = px)
+    Artwork(gradient, shape, m, image = image, imagePx = px, collage = collage)
 }
 
 @Composable
@@ -338,10 +386,13 @@ fun SongRow(
     divider: Boolean = false,
     rating: Float = 0f,
     /** Draws the row as its own rounded card (used by the New and Glass looks). */
-    card: Boolean = false
+    card: Boolean = false,
+    /** Smaller rows with a smaller cover. */
+    compact: Boolean = false
 ) {
     val c = Sb.colors
-    val inset = if (leading != null) 60.dp else 74.dp
+    val art = if (compact) 34.dp else 44.dp
+    val inset = if (leading != null) 60.dp else if (compact) 64.dp else 74.dp
     val outer = if (card) {
         modifier
             .padding(horizontal = 16.dp, vertical = 4.dp)
@@ -351,7 +402,7 @@ fun SongRow(
     } else modifier.fillMaxWidth()
     Row(
         outer
-            .height(if (card) 62.dp else 58.dp)
+            .height(if (compact) 48.dp else if (card) 62.dp else 58.dp)
             .drawBehind {
                 if (divider && !card) {
                     val y = size.height - 0.5.dp.toPx()
@@ -363,7 +414,7 @@ fun SongRow(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        if (leading != null) leading() else CircleArtwork(gradient, 44.dp, image = image)
+        if (leading != null) leading() else CircleArtwork(gradient, art, image = image)
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(

@@ -72,7 +72,9 @@ class NewSongInput(
     val body: String,
     val image: String?,
     val stage: Int,
-    val typeName: String
+    val typeName: String,
+    /** True when a cover was picked by hand; otherwise the song wears its album's cover. */
+    val coverManual: Boolean
 )
 
 private val Templates = listOf(
@@ -106,6 +108,7 @@ fun NewSongSheet(
     var pickStage by remember { mutableStateOf(false) }
     var typeName by remember { mutableStateOf("") }
     var pickType by remember { mutableStateOf(false) }
+    var artTouched by remember { mutableStateOf(false) }
     var template by remember { mutableIntStateOf(0) }
     var importedBody by remember { mutableStateOf<String?>(null) }
     var importedName by remember { mutableStateOf<String?>(null) }
@@ -130,7 +133,7 @@ fun NewSongSheet(
             onDismiss = { pickAlbum = false }
         )
     }
-    if (pickArtwork) ArtworkDialog(gradient, image, { g, img -> gradient = g; image = img; pickArtwork = false }, { pickArtwork = false })
+    if (pickArtwork) ArtworkDialog(gradient, image, { g, img -> gradient = g; image = img; artTouched = true; pickArtwork = false }, { pickArtwork = false })
     if (pickType) TypeDialog("Type", SongTypes, typeName, "Original song", { typeName = it; pickType = false }, { pickType = false })
     if (pickStage) StageDialog(stage, { stage = it; pickStage = false }, { pickStage = false })
     if (pickTemplate) {
@@ -214,7 +217,8 @@ fun NewSongSheet(
                             body = body,
                             image = image,
                             stage = stage,
-                            typeName = typeName
+                            typeName = typeName,
+                            coverManual = artTouched
                         )
                         scope.launch { sheetState.hide() }.invokeOnCompletion { onCreate(input) }
                     },

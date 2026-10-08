@@ -37,7 +37,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.songbook.app.data.AppSettings
+import com.songbook.app.data.AlbumSort
+import com.songbook.app.data.BackupFile
 import com.songbook.app.data.BackupInfo
+import com.songbook.app.data.ColumnChoices
+import com.songbook.app.data.SongSort
+import com.songbook.app.data.SongsLayout
+import com.songbook.app.data.TrackSort
+import com.songbook.app.data.readBytes
+import com.songbook.app.data.writeBytes
 import com.songbook.app.data.ThemeMode
 import com.songbook.app.data.UiStyle
 import com.songbook.app.data.displayName
@@ -46,6 +54,9 @@ import com.songbook.app.data.writeText
 import com.songbook.app.ui.AppViewModel
 import com.songbook.app.ui.components.AccentDialog
 import com.songbook.app.ui.components.AppIconArt
+import com.songbook.app.ui.components.Blocks
+import com.songbook.app.ui.components.BlocksDialog
+import com.songbook.app.ui.components.ChoiceDialog
 import com.songbook.app.ui.components.GlassTitle
 import com.songbook.app.ui.components.MutedValue
 import com.songbook.app.ui.components.ReadingDialog
@@ -67,12 +78,12 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
-const val APP_VERSION = "2.0"
+const val APP_VERSION = "2.5"
 
 private val GreetingNames = listOf("Hello", "Hi", "Hey", "Welcome back", "By time of day", "Custom")
 private val TopAlbumChoices = listOf(0, 2, 4, 6, 8)
 
-private fun backupVersionName(v: Int) = when (v) { 1 -> "1.0"; 2 -> "1.5"; else -> "2.0" }
+private fun backupVersionName(v: Int) = when (v) { 1 -> "1.0"; 2 -> "1.5"; 3 -> "2.0"; else -> "2.5" }
 
 @Composable
 fun SettingsScreen(settings: AppSettings, vm: AppViewModel, onReplayIntro: () -> Unit) {
@@ -84,21 +95,33 @@ fun SettingsScreen(settings: AppSettings, vm: AppViewModel, onReplayIntro: () ->
     var nameDialog by remember { mutableStateOf(false) }
     var greetingDialog by remember { mutableStateOf(false) }
     var accentDialog by remember { mutableStateOf(false) }
-    var restore by remember { mutableStateOf<Pair<BackupInfo, String>?>(null) }
+    var restore by remember { mutableStateOf<Pair<BackupInfo, BackupFile>?>(null) }
+    var backupDialog by remember { mutableStateOf(false) }
+    var titleDialog by remember { mutableStateOf(false) }
+    // 1 songs layout, 2 album columns, 3 group columns, 4 tracks layout, 5 favorites layout, 6 song sort, 7 album sort, 8 track sort
+    var choice by remember { mutableIntStateOf(0) }
+    // 1 main page blocks, 2 albums page blocks
+    var blocks by remember { mutableIntStateOf(0) }
 
     fun toast(msg: String) = Toast.makeText(context, msg, Toast.LENGTH_SHORT).show()
 
-    val backupLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+    val zipLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
+        if (uri != null) scope.launch {
+            val ok = context.writeBytes(uri, vm.backupZip())
+            toast(if (ok) "Backup with pictures saved" else "Could not save backup")
+        }
+    }
+    val jsonLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri != null) scope.launch {
             val ok = context.writeText(uri, vm.backupJson())
-            toast(if (ok) "Backup saved" else "Could not save backup")
+            toast(if (ok) "Library backup saved" else "Could not save backup")
         }
     }
     val restoreLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) scope.launch {
-            val text = context.readText(uri)
-            val info = text?.let { vm.previewBackup(it) }
-            if (text == null || info == null) toast("That file isn't a Songbook backup") else restore = info to text
+            val file = context.readBytes(uri)?.let { vm.openBackup(it) }
+            val info = file?.let { vm.previewBackup(it) }
+            if (file == null || info == null) toast("That file isn't a Songbook backup") else restore = info to file
         }
     }
     val exportLauncher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
@@ -119,8 +142,8 @@ fun SettingsScreen(settings: AppSettings, vm: AppViewModel, onReplayIntro: () ->
 
     if (readingDialog) {
         ReadingDialog(
-            settings.lyricsSize, settings.chordSize, settings.lineSpacing, settings.chordOffset,
-            onCommit = { l, ch, s, off -> vm.setReading(l, ch, s, off) },
+            settings.lyricsSize, settings.chordSize, settings.lineSpacing, settings.chordOffset, settings.sectionSize,
+            onCommit = { l, ch, s, off, sec -> vm.setReading(l, ch, s, off, sec) },
             onDismiss = { readingDialog = false }
         )
     }
@@ -140,17 +163,57 @@ fun SettingsScreen(settings: AppSettings, vm: AppViewModel, onReplayIntro: () ->
             onDismiss = { accentDialog = false }
         )
     }
-    restore?.let { (info, text) ->
+    restore?.let { (info, file) ->
         RestoreDialog(info, { restore = null }) { replace, withSettings ->
             restore = null
             scope.launch {
-                val r = runCatching { vm.restoreBackup(text, replace, withSettings) }.getOrNull()
+                val r = runCatching { vm.restoreBackup(file, replace, withSettings) }.getOrNull()
                 toast(
                     if (r == null) "Could not restore that backup"
                     else "Restored ${r.songs} songs, ${r.albums} albums, ${r.groups} groups" + if (r.skipped > 0) " (${r.skipped} already there)" else ""
                 )
             }
         }
+    }
+
+    if (backupDialog) {
+        BackupDialog(
+            onDismiss = { backupDialog = false },
+            onZip = { backupDialog = false; zipLauncher.launch("songbook-backup.zip") },
+            onJson = { backupDialog = false; jsonLauncher.launch("songbook-library.json") }
+        )
+    }
+    if (titleDialog) {
+        TitleDialog(settings.groupsTitle, { titleDialog = false }) { t -> vm.edit { setGroupsTitle(t) }; titleDialog = false }
+    }
+    val trackIdx = { v: Int -> when (v) { 2 -> 1; 3 -> 2; else -> 0 } }
+    val gridNames = listOf("List", "Grid, 2 columns", "Grid, 3 columns")
+    val gridValue = { i: Int -> if (i == 0) 0 else i + 1 }
+    when (choice) {
+        1 -> ChoiceDialog("Songs on the main page", SongsLayout.names, settings.songsLayout, { v -> vm.edit { setSongsLayout(v) }; choice = 0 }, { choice = 0 })
+        2 -> ChoiceDialog("Albums per row", ColumnChoices, settings.albumColumns - 1, { v -> vm.edit { setAlbumColumns(v + 1) }; choice = 0 }, { choice = 0 })
+        3 -> ChoiceDialog("Groups per row", ColumnChoices, settings.groupColumns - 1, { v -> vm.edit { setGroupColumns(v + 1) }; choice = 0 }, { choice = 0 })
+        4 -> ChoiceDialog("Songs inside an album", gridNames, trackIdx(settings.trackLayout), { v -> vm.edit { setTrackLayout(gridValue(v)) }; choice = 0 }, { choice = 0 })
+        5 -> ChoiceDialog("Favorites page", gridNames, trackIdx(settings.favLayout), { v -> vm.edit { setFavLayout(gridValue(v)) }; choice = 0 }, { choice = 0 })
+        6 -> ChoiceDialog("Sort songs", SongSort.names, settings.songSort, { v -> vm.edit { setSongSort(v) }; choice = 0 }, { choice = 0 })
+        7 -> ChoiceDialog("Sort albums and groups", AlbumSort.names, settings.albumSort, { v -> vm.edit { setAlbumSort(v) }; choice = 0 }, { choice = 0 })
+        8 -> ChoiceDialog("Sort songs inside an album", TrackSort.names, settings.trackSort, { v -> vm.edit { setTrackSort(v) }; choice = 0 }, { choice = 0 })
+    }
+    if (blocks == 1) {
+        BlocksDialog(
+            "Main page", Blocks.resolve(settings.homeLayout, Blocks.home(settings.uiStyle)),
+            onSave = { vm.edit { setHomeLayout(Blocks.encode(it)) }; blocks = 0 },
+            onReset = { vm.edit { setHomeLayout("") }; blocks = 0 },
+            onDismiss = { blocks = 0 }
+        )
+    }
+    if (blocks == 2) {
+        BlocksDialog(
+            "Albums page", Blocks.resolve(settings.albumsLayout, Blocks.albums(settings.uiStyle)),
+            onSave = { vm.edit { setAlbumsLayout(Blocks.encode(it)) }; blocks = 0 },
+            onReset = { vm.edit { setAlbumsLayout("") }; blocks = 0 },
+            onDismiss = { blocks = 0 }
+        )
     }
 
     Column(Modifier.fillMaxSize().screenBg().statusBarsPadding().verticalScroll(rememberScrollState()).padding(bottom = 130.dp)) {
@@ -216,12 +279,23 @@ fun SettingsScreen(settings: AppSettings, vm: AppViewModel, onReplayIntro: () ->
                     vm.edit { setTopAlbums(TopAlbumChoices[i]) }
                 }
             }
-            SettingsRow("Albums Grid") {
-                Segmented(listOf("2 columns", "3 columns"), settings.gridColumns - 2) { v -> vm.edit { setGridColumns(v + 2) } }
-            }
-            SettingsRow("Songs Layout") {
-                Segmented(listOf("List", "Grid"), if (settings.songsGrid) 1 else 0) { v -> vm.edit { setSongsGrid(v == 1) } }
-            }
+            SettingsRow("Songs, main page", onClick = { choice = 1 }) { MutedValue(SongsLayout.names[settings.songsLayout]) }
+            SettingsRow("Albums per row", onClick = { choice = 2 }) { MutedValue(ColumnChoices[settings.albumColumns - 1]) }
+            SettingsRow("Groups per row", onClick = { choice = 3 }) { MutedValue(ColumnChoices[settings.groupColumns - 1]) }
+            SettingsRow("Songs inside an album", onClick = { choice = 4 }) { MutedValue(gridNames[trackIdx(settings.trackLayout)]) }
+            SettingsRow("Favorites", onClick = { choice = 5 }) { MutedValue(gridNames[trackIdx(settings.favLayout)]) }
+        }
+
+        SettingsGroup("Sorting") {
+            SettingsRow("Songs", first = true, onClick = { choice = 6 }) { MutedValue(SongSort.names[settings.songSort].substringBefore(" (")) }
+            SettingsRow("Albums and groups", onClick = { choice = 7 }) { MutedValue(AlbumSort.names[settings.albumSort].substringBefore(" (")) }
+            SettingsRow("Songs inside an album", onClick = { choice = 8 }) { MutedValue(TrackSort.names[settings.trackSort]) }
+        }
+
+        SettingsGroup("Pages") {
+            SettingsRow("Main page blocks", first = true, onClick = { blocks = 1 }) { MutedValue("Order and hide") }
+            SettingsRow("Albums page blocks", onClick = { blocks = 2 }) { MutedValue("Order and hide") }
+            SettingsRow("Groups heading", onClick = { titleDialog = true }) { MutedValue(settings.groupsTitle.ifBlank { "Automatic" }) }
         }
 
         SettingsGroup("Reading") {
@@ -229,6 +303,7 @@ fun SettingsScreen(settings: AppSettings, vm: AppViewModel, onReplayIntro: () ->
             SettingsRow("Chord Size", onClick = { readingDialog = true }) { MutedValue("${settings.chordSize} pt") }
             SettingsRow("Chord Distance", onClick = { readingDialog = true }) { MutedValue(chordOffsetLabel(settings.chordOffset)) }
             SettingsRow("Line Spacing", onClick = { readingDialog = true }) { MutedValue("${"%.1f".format(settings.lineSpacing)}×") }
+            SettingsRow("Section Title Size", onClick = { readingDialog = true }) { MutedValue("${settings.sectionSize} pt") }
             SettingsRow("Section Names") {
                 Segmented(listOf("VERSE", "verse", "As typed"), settings.sectionStyle) { v -> vm.edit { setSectionStyle(v) } }
             }
@@ -246,8 +321,8 @@ fun SettingsScreen(settings: AppSettings, vm: AppViewModel, onReplayIntro: () ->
         }
 
         SettingsGroup("Data") {
-            SettingsRow("Backup", first = true, onClick = { backupLauncher.launch("songbook-backup.json") }) { MutedValue(backupLabel(settings.lastBackup)) }
-            SettingsRow("Restore Backup", onClick = { restoreLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) }) { MutedValue("From 1.0, 1.5 or 2.0") }
+            SettingsRow("Backup", first = true, onClick = { backupDialog = true }) { MutedValue(backupLabel(settings.lastBackup)) }
+            SettingsRow("Restore Backup", onClick = { restoreLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) }) { MutedValue("Any version") }
             SettingsRow("Export Songs", onClick = { exportLauncher.launch("songbook-songs.txt") })
             SettingsRow("Import Songs", onClick = { importLauncher.launch(arrayOf("application/json", "text/plain", "*/*")) })
         }
@@ -274,7 +349,8 @@ private fun RestoreDialog(info: BackupInfo, onDismiss: () -> Unit, onRestore: (r
             Text("Songbook ${backupVersionName(info.version)} backup", style = sbStyle(15, FontWeight.SemiBold, c.tx))
             Text(
                 "${info.songs} songs · ${info.albums} albums" + (if (info.groups > 0) " · ${info.groups} groups" else "") +
-                    (if (info.ideas > 0) " · ${info.ideas} ideas" else ""),
+                    (if (info.ideas > 0) " · ${info.ideas} ideas" else "") +
+                    (if (info.images > 0) " · ${info.images} pictures" else ""),
                 style = sbStyle(13, color = c.mu)
             )
             Segmented(listOf("Add to library", "Replace library"), mode) { mode = it }
@@ -291,6 +367,42 @@ private fun RestoreDialog(info: BackupInfo, onDismiss: () -> Unit, onRestore: (r
             } else {
                 Text("This backup has no settings (backups before 2.0 don't).", style = sbStyle(12, color = c.mu))
             }
+        }
+    }
+}
+
+/** Backup format: .zip with every picture as a file, or the library alone as .json. */
+@Composable
+private fun BackupDialog(onDismiss: () -> Unit, onZip: () -> Unit, onJson: () -> Unit) {
+    val c = Sb.colors
+    SbDialog("Backup", onDismiss) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            @Composable
+            fun Option(title: String, text: String, onClick: () -> Unit) {
+                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable(onClick = onClick).padding(horizontal = 4.dp, vertical = 10.dp)) {
+                    Text(title, style = sbStyle(15, FontWeight.SemiBold, c.ac))
+                    Text(text, style = sbStyle(12, color = c.mu))
+                }
+            }
+            Option("With pictures (.zip)", "Songs, albums, groups, settings and every cover picture. Use this one before updating or changing phone.", onZip)
+            Option("Library only (.json)", "Everything except the pictures. Small and fast.", onJson)
+        }
+    }
+}
+
+@Composable
+private fun TitleDialog(initial: String, onDismiss: () -> Unit, onSave: (String) -> Unit) {
+    var text by remember { mutableStateOf(initial) }
+    SbDialog("Groups heading", onDismiss, "Save", { onSave(text.trim()) }) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(
+                value = text, onValueChange = { if (it.length <= 24) text = it }, label = { Text("Heading") },
+                singleLine = true, textStyle = sbStyle(15, color = Sb.colors.tx)
+            )
+            Text(
+                "Leave empty and the Albums page names each section after the type you chose: Trilogies, Box sets...",
+                style = sbStyle(12, color = Sb.colors.mu)
+            )
         }
     }
 }

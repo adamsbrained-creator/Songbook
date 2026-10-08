@@ -9,7 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [AlbumEntity::class, SongEntity::class, GroupEntity::class],
-    version = 3,
+    version = 4,
     exportSchema = false
 )
 abstract class SongbookDatabase : RoomDatabase() {
@@ -56,9 +56,24 @@ abstract class SongbookDatabase : RoomDatabase() {
             }
         }
 
+        /** 2.0 -> 2.5: album covers for songs, album sides, manual order. Keeps all existing data. */
+        private val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE songs ADD COLUMN coverManual INTEGER NOT NULL DEFAULT 0")
+                // a song that already has its own picture keeps it until you pick "Use album cover"
+                db.execSQL("UPDATE songs SET coverManual = 1 WHERE image IS NOT NULL")
+                db.execSQL("ALTER TABLE songs ADD COLUMN side INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE songs ADD COLUMN trackNo INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE songs ADD COLUMN libPos INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE albums ADD COLUMN sides TEXT NOT NULL DEFAULT ''")
+                db.execSQL("ALTER TABLE albums ADD COLUMN position INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE album_groups ADD COLUMN position INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun build(context: Context): SongbookDatabase =
             Room.databaseBuilder(context.applicationContext, SongbookDatabase::class.java, "songbook.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                 .build()
     }
 }

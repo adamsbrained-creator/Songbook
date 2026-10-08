@@ -11,7 +11,8 @@ class BackupInfo(
     val albums: Int,
     val groups: Int,
     val hasSettings: Boolean,
-    val ideas: Int
+    val ideas: Int,
+    val images: Int
 )
 
 class RestoreResult(val songs: Int, val albums: Int, val groups: Int, val skipped: Int)
@@ -38,7 +39,7 @@ class SongbookRepository(
     suspend fun deleteSong(id: Long) = dao.deleteSong(id)
 
     suspend fun duplicate(song: SongEntity): Long =
-        dao.insertSong(song.copy(id = 0, title = song.title + " copy", favorite = false, updatedAt = System.currentTimeMillis()))
+        dao.insertSong(song.copy(id = 0, title = song.title + " copy", favorite = false, trackNo = 0, libPos = 0, updatedAt = System.currentTimeMillis()))
 
     suspend fun createAlbum(name: String, gradient: Int = 0): Long =
         dao.insertAlbum(AlbumEntity(name = name.trim().ifEmpty { "Untitled album" }, gradient = gradient))
@@ -57,8 +58,7 @@ class SongbookRepository(
         val id = dao.insertGroup(
             GroupEntity(
                 name = name.trim().ifEmpty { "Group" },
-                gradient = first?.gradient ?: 0,
-                image = first?.image
+                gradient = first?.gradient ?: 0
             )
         )
         if (albumIds.isNotEmpty()) dao.setAlbumsGroup(albumIds, id)
@@ -84,7 +84,7 @@ class SongbookRepository(
     suspend fun setTheme(v: ThemeMode) = store.setTheme(v)
     suspend fun setAccent(v: Int) = store.setAccent(v)
     suspend fun setNavRaised(v: Boolean) = store.setNavRaised(v)
-    suspend fun setReading(l: Int, c: Int, s: Float, offset: Int) = store.setReading(l, c, s, offset)
+    suspend fun setReading(l: Int, c: Int, s: Float, offset: Int, section: Int) = store.setReading(l, c, s, offset, section)
     suspend fun setShowChords(v: Boolean) = store.setShowChords(v)
     suspend fun setShowTabs(v: Boolean) = store.setShowTabs(v)
     suspend fun setAutoScroll(v: Boolean) = store.setAutoScroll(v)
@@ -95,17 +95,23 @@ class SongbookRepository(
     suspend fun editSettings(block: suspend SettingsStore.() -> Unit) = store.block()
 
     // ---- backup ---------------------------------------------------------------------------
+    /** Library only, no pictures (.json). */
     suspend fun backupJson(): String =
-        Backup.toJson(dao.allAlbums(), dao.allSongs(), dao.allGroups(), store.flow.first()) { ImageStore.readBytes(context, it) }
+        Backup.toJson(dao.allAlbums(), dao.allSongs(), dao.allGroups(), store.flow.first(), embedImages = false) { null }
+
+    /** Library, settings and every picture as its own file (.zip). */
+    suspend fun backupZip(): ByteArray =
+        Backup.toZip(dao.allAlbums(), dao.allSongs(), dao.allGroups(), store.flow.first()) { ImageStore.readBytes(context, it) }
+
+    fun openBackup(bytes: ByteArray): BackupFile? = Backup.open(bytes)
 
     suspend fun exportText(): String = Backup.toText(dao.allAlbums(), dao.allSongs())
 
     /** Looks inside a backup (any version) without changing anything. Null when it is not a Songbook backup. */
-    fun previewBackup(text: String): BackupInfo? {
-        val t = text.trim()
-        if (!t.startsWith("{")) return null
+    fun previewBackup(file: BackupFile): BackupInfo? {
+        if (!file.json.trimStart().startsWith("{")) return null
         return runCatching {
-            val p = Backup.fromJson(t)
+            val p = Backup.fromJson(file)
             if (p.songs.isEmpty() && p.albums.isEmpty() && p.groups.isEmpty()) return null
             BackupInfo(
                 version = p.version,
@@ -113,7 +119,8 @@ class SongbookRepository(
                 albums = p.albums.size,
                 groups = p.groups.size,
                 hasSettings = p.settings != null,
-                ideas = p.songs.count { it.stage == Stage.IDEA }
+                ideas = p.songs.count { it.stage == Stage.IDEA },
+                images = p.images.size
             )
         }.getOrNull()
     }
@@ -123,8 +130,8 @@ class SongbookRepository(
      * [replace] = false adds what is missing (songs with the same title and text, albums and groups
      * with the same name are skipped); true wipes the library first.
      */
-    suspend fun restoreBackup(text: String, replace: Boolean, withSettings: Boolean): RestoreResult {
-        val parsed = Backup.fromJson(text.trim())
+    suspend fun restoreBackup(file: BackupFile, replace: Boolean, withSettings: Boolean): RestoreResult {
+        val parsed = Backup.fromJson(file)
         if (replace) {
             dao.deleteAllSongs()
             dao.deleteAllAlbums()
@@ -181,16 +188,66 @@ class SongbookRepository(
         }
         dao.pruneGroups()
         if (withSettings) parsed.settings?.let { store.restore(it) }
+        // restored songs that carry the very same picture as their album follow the album again
+        adoptSameCovers(force = true)
         return RestoreResult(addedSongs, addedAlbums, addedGroups, skipped)
     }
 
     /** Imports a JSON backup (merge) or a plain text file as one song. Returns the number of songs added. */
     suspend fun importData(text: String, fileName: String?): Int {
         val trimmed = text.trim()
-        if (trimmed.startsWith("{")) return restoreBackup(trimmed, replace = false, withSettings = false).songs
+        if (trimmed.startsWith("{")) return restoreBackup(BackupFile(trimmed, emptyMap()), replace = false, withSettings = false).songs
         val title = fileName?.substringBeforeLast('.')?.ifBlank { null } ?: "Imported song"
         dao.insertSong(SongEntity(title = title, body = text))
         return 1
+    }
+
+    // ---- order, sides, covers ------------------------------------------------------------
+    /** Saves the order you dragged the song list into (see Sorting.kt, "My order"). */
+    suspend fun arrangeSongs(ids: List<Long>) = ids.forEachIndexed { i, id -> dao.setLibPos(id, i + 1) }
+
+    /** Saves the order of the songs inside an album (or inside one of its sides). */
+    suspend fun arrangeTracks(ids: List<Long>) = ids.forEachIndexed { i, id -> dao.setTrackNo(id, i + 1) }
+
+    suspend fun arrangeAlbums(ids: List<Long>) = ids.forEachIndexed { i, id -> dao.setAlbumPos(id, i + 1) }
+
+    suspend fun arrangeGroups(ids: List<Long>) = ids.forEachIndexed { i, id -> dao.setGroupPos(id, i + 1) }
+
+    suspend fun setSongSide(songId: Long, side: Int) = dao.setSongSide(songId, side)
+
+    suspend fun setAlbumSides(album: AlbumEntity, names: List<String>) =
+        dao.updateAlbum(album.copy(sides = names.map { it.trim() }.filter { it.isNotEmpty() }.joinToString("\n")))
+
+    /** Removes one side; its songs join the first side. */
+    suspend fun removeAlbumSide(album: AlbumEntity, index: Int) {
+        val names = album.sideList.toMutableList()
+        if (index !in names.indices) return
+        dao.moveSideToFirst(album.id, index)
+        dao.shiftSidesDown(album.id, index)
+        names.removeAt(index)
+        dao.updateAlbum(album.copy(sides = names.joinToString("\n")))
+    }
+
+    /** All songs of the album show the album's cover again. */
+    suspend fun followAlbumCover(albumId: Long) = dao.followAlbumCover(albumId)
+
+    /**
+     * One time, after the 2.5 update: a song whose own picture is exactly the album's picture is switched
+     * to follow the album, so changing the album cover later changes the song too.
+     */
+    suspend fun adoptSameCovers(force: Boolean = false) {
+        if (!force && store.flow.first().coversAdopted) return
+        val albums = dao.allAlbums().associateBy { it.id }
+        for (song in dao.allSongs()) {
+            val own = song.image ?: continue
+            val albumImage = song.albumId?.let { albums[it] }?.image ?: continue
+            val x = ImageStore.readBytes(context, own)
+            val y = ImageStore.readBytes(context, albumImage)
+            if (song.coverManual && x != null && y != null && x.contentEquals(y)) {
+                dao.updateSong(song.copy(coverManual = false, image = null))
+            }
+        }
+        store.setCoversAdopted(true)
     }
 
     /** Removes cover files nobody points at (replaced or deleted artwork). */

@@ -13,8 +13,21 @@ android {
         applicationId = "com.songbook.app"
         minSdk = 26
         targetSdk = 35
-        versionCode = 3
-        versionName = "2.0"
+        // GitHub numbers every build (1, 2, 3...). Adding 100 keeps it above the old hand-set codes,
+        // so each new build counts as an update and Android never sees it as a downgrade.
+        versionCode = 100 + (System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 0)
+        versionName = "2.5"
+    }
+
+    // One fixed debug key, committed to the repo (app/debug.keystore). Every build is signed with the
+    // same key, so a new APK installs over the old one and keeps your songs.
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
     }
 
     buildTypes {

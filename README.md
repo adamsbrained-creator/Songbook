@@ -1,7 +1,30 @@
-# Songbook 2.0 (Android · Kotlin · Jetpack Compose)
+# Songbook 2.5 (Android · Kotlin · Jetpack Compose)
 
 Native Android build of the Songbook mockup: Library, Song page, Song editor,
 Albums, Album and Group pages, Workflow, Favorites, New song sheet, Song menu, Settings and a first-run intro.
+
+## New in 2.5
+| # | Feature | Where |
+|---|---|---|
+| 1 | Songs wear the **cover of their album** automatically; a cover picked by hand stays (and "Use album cover" gives it back; album menu ▸ "Use this cover for all songs") | `SongEntity.coverManual`, `withAlbumCover()` |
+| 2 | Chords sit **closer to the lyrics**; chord distance goes down to -14 | `ChordLyricLine` (`SongScreen.kt`) |
+| 3 | **Layouts per page**: songs (list, compact, grid 2/3/4), albums and groups (1 to 4 columns), songs inside an album, favorites | `SongsLayout`, Settings ▸ Layout |
+| 4 | **Sorting** for songs, albums/groups and songs inside an album | `data/Sorting.kt` |
+| 5 | **Full screen lyrics**: button in the corner of the lyrics card | `SongScreen.kt` (`expanded`) |
+| 6 | **Section title size** (verse, chorus...) | Reading dialog / Settings |
+| 7 | **Album sides** (Side A, Side B, Disc 1... or your own); songs are listed per side; song menu ▸ Side | `AlbumEntity.sides`, `SidesDialog.kt` |
+| 8 | With a capo, chords **keep their place over the word**; only the names change | `ChordLyricLine` |
+| 9 | **Backup with pictures** (.zip, every cover as a file) or library only (.json); restore reads every old backup | `Backup.kt` |
+| 10 | New cleaner **icon** | `res/drawable/ic_launcher_*.xml` |
+| 11 | **Tap a word** in the lyrics to type the chord played there | `ChordDialog.kt`, `SongParser.withChordsAt` |
+| 12 | `[G Am Dm]` in one bracket is now three chords next to each other (and they follow the capo) | `SongParser.parseLyric` |
+| 13 | **Drag to arrange** songs, songs in an album, albums, groups | `ArrangeScreen.kt`, `Reorder.kt` |
+| 14 | The Albums page names each group section after its type (**Trilogies**, Box sets...) or your own heading | `AlbumsScreen.kt`, Settings ▸ Pages |
+| 15 | **Customize pages**: reorder and hide blocks of the main page and the Albums page | `Blocks.kt`, Settings ▸ Pages |
+| 16 | Groups get **their own cover** or a collage of their albums | `Artwork(collage = ...)` |
+| + | Glass tab bar no longer shows list text through it; Group page header lines up with the Album page | `Surfaces.kt`, `Chrome.kt`, `GroupScreen.kt` |
+
+Database version is now 4 (`MIGRATION_3_4`). Songs that already have their own picture keep it; a song whose picture is exactly its album's picture is switched to follow the album once, on first start.
 
 ## New in 2.0
 | # | Feature | Where |

@@ -33,7 +33,9 @@ fun Modifier.glassSurface(shape: Shape, strong: Boolean = false): Modifier {
     }
     val border = if (c.isDark) Color.White.copy(alpha = 0.16f) else Color.Black.copy(alpha = 0.07f)
     val base = if (c.isDark) this else this.shadow(6.dp, shape, ambientColor = Color.Black.copy(0.05f), spotColor = Color.Black.copy(0.08f))
-    return base.background(fill, shape).border(1.dp, border, shape)
+    // bars that float over scrolling content get a mostly solid base, so the text behind them cannot show through
+    val solid = if (strong) base.background(c.bg.copy(alpha = if (c.isDark) 0.92f else 0.88f), shape) else base
+    return solid.background(fill, shape).border(1.dp, border, shape)
 }
 
 /**

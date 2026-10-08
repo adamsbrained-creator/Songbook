@@ -77,6 +77,32 @@ interface SongbookDao {
     @Query("DELETE FROM album_groups")
     suspend fun deleteAllGroups()
 
+    @Query("UPDATE songs SET libPos = :v WHERE id = :id")
+    suspend fun setLibPos(id: Long, v: Int)
+
+    @Query("UPDATE songs SET trackNo = :v WHERE id = :id")
+    suspend fun setTrackNo(id: Long, v: Int)
+
+    @Query("UPDATE albums SET position = :v WHERE id = :id")
+    suspend fun setAlbumPos(id: Long, v: Int)
+
+    @Query("UPDATE album_groups SET position = :v WHERE id = :id")
+    suspend fun setGroupPos(id: Long, v: Int)
+
+    @Query("UPDATE songs SET side = :side WHERE id = :id")
+    suspend fun setSongSide(id: Long, side: Int)
+
+    /** Songs of a deleted side join the first side, later sides move up by one. */
+    @Query("UPDATE songs SET side = 0 WHERE albumId = :albumId AND side = :side")
+    suspend fun moveSideToFirst(albumId: Long, side: Int)
+
+    @Query("UPDATE songs SET side = side - 1 WHERE albumId = :albumId AND side > :side")
+    suspend fun shiftSidesDown(albumId: Long, side: Int)
+
+    /** Every song of the album follows the album cover again. */
+    @Query("UPDATE songs SET coverManual = 0 WHERE albumId = :albumId")
+    suspend fun followAlbumCover(albumId: Long)
+
     /** Groups that lost all their albums are removed. */
     @Query("DELETE FROM album_groups WHERE id NOT IN (SELECT groupId FROM albums WHERE groupId IS NOT NULL)")
     suspend fun pruneGroups()

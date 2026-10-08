@@ -28,7 +28,9 @@ data class GroupEntity(
     /** 0..5 in steps of 0.25, 0 = not rated. */
     val rating: Float = 0f,
     /** Custom title such as "Trilogy" or "Box set". Blank = chosen automatically from the album count. */
-    val typeName: String = ""
+    val typeName: String = "",
+    /** Place in your own order (1, 2, 3...). 0 = not arranged yet. */
+    val position: Int = 0
 )
 
 @Entity(tableName = "albums")
@@ -44,7 +46,11 @@ data class AlbumEntity(
     val groupId: Long? = null,
     val rating: Float = 0f,
     /** "Single", "EP", "LP"... or anything custom. Blank = "Album". */
-    val typeName: String = ""
+    val typeName: String = "",
+    /** Names of the album's sides, one per line ("Side A\nSide B"). Blank = the album has no sides. */
+    val sides: String = "",
+    /** Place in your own order (1, 2, 3...). 0 = not arranged yet. */
+    val position: Int = 0
 )
 
 @Entity(
@@ -88,5 +94,27 @@ data class SongEntity(
     /** Songwriting desk (spark, lines, checklist, custom fields) as JSON, see [IdeaData]. */
     val idea: String = "",
     /** When true and a capo is set, chords and tabs are shown as shapes for that capo. */
-    val capoAdjust: Boolean = true
+    val capoAdjust: Boolean = true,
+    /** True when this song's cover was chosen by hand. Otherwise the song shows the cover of its album. */
+    val coverManual: Boolean = false,
+    /** Index into the album's sides (0 = first side). Ignored when the album has no sides. */
+    val side: Int = 0,
+    /** Place inside its album (1, 2, 3...). 0 = not arranged yet; those songs come last, in the order they were added. */
+    val trackNo: Int = 0,
+    /** Place in your own order of the song list. 0 = not arranged yet. */
+    val libPos: Int = 0
 )
+
+/**
+ * The song as it is shown: unless its cover was chosen by hand, it wears the cover (picture or color)
+ * of the album it is in. Only for drawing; never save this copy.
+ */
+fun SongEntity.withAlbumCover(albums: Map<Long, AlbumEntity>): SongEntity {
+    if (coverManual) return this
+    val a = albumId?.let { albums[it] } ?: return this
+    return copy(gradient = a.gradient, image = a.image)
+}
+
+/** The names of the album's sides, empty when it has none. */
+val AlbumEntity.sideList: List<String>
+    get() = if (sides.isBlank()) emptyList() else sides.split('\n').map { it.trim() }.filter { it.isNotEmpty() }

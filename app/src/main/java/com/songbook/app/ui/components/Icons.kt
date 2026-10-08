@@ -40,6 +40,10 @@ object SbIcons {
         listOf("M4 8h8M16 8h4M4 16h2M10 16h10"),
         listOf(Triple(14f, 8f, 2f), Triple(8f, 16f, 2f))
     )
+    val Expand = IconSpec(listOf("M4 9V4h5", "M20 9V4h-5", "M4 15v5h5", "M20 15v5h-5"))
+    val Collapse = IconSpec(listOf("M9 4v5H4", "M15 4v5h5", "M9 20v-5H4", "M15 20v-5h5"))
+    val Sort = IconSpec(listOf("M7 4v16", "M3.5 16.5L7 20l3.5-3.5", "M17 20V4", "M13.5 7.5L17 4l3.5 3.5"))
+    val Drag = IconSpec(listOf("M4 8h16", "M4 12h16", "M4 16h16"))
     val Play = IconSpec(listOf("M7 4.5v15l12-7.5z"))
     val Pause = IconSpec(listOf("M7 5h3.5v14H7z", "M13.5 5H17v14h-3.5z"))
     val Edit = IconSpec(listOf("M4 20h4L19 9l-4-4L4 16z", "M13.5 6.5l4 4"))

@@ -58,7 +58,8 @@ fun WorkflowScreen(
     onBack: () -> Unit,
     onOpenSong: (Long) -> Unit,
     onOpenDesk: (Long) -> Unit,
-    onUpdateSong: (SongEntity) -> Unit,
+    /** Changes one stored song: its id and what to change. */
+    onPatch: (Long, (SongEntity) -> SongEntity) -> Unit,
     onNewIdea: () -> Unit
 ) {
     val c = Sb.colors
@@ -68,7 +69,7 @@ fun WorkflowScreen(
     var noteFor by remember { mutableStateOf<SongEntity?>(null) }
 
     noteFor?.let { s ->
-        NoteDialog(s.note, { noteFor = null }) { onUpdateSong(s.copy(note = it)); noteFor = null }
+        NoteDialog(s.note, { noteFor = null }) { text -> onPatch(s.id) { stored -> stored.copy(note = text) }; noteFor = null }
     }
 
     LazyColumn(
@@ -134,7 +135,7 @@ fun WorkflowScreen(
                         onOpen = { if (s.stage == Stage.IDEA) onOpenDesk(s.id) else onOpenSong(s.id) },
                         onDesk = { onOpenDesk(s.id) },
                         onNote = { noteFor = s },
-                        onAdvance = { onUpdateSong(s.copy(stage = (s.stage + 1).coerceAtMost(Stage.DONE))) }
+                        onAdvance = { onPatch(s.id) { stored -> stored.copy(stage = (stored.stage + 1).coerceAtMost(Stage.DONE)) } }
                     )
                 }
             }

@@ -3,6 +3,7 @@ package com.songbook.app.ui.screens
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -39,6 +40,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Outline
@@ -47,8 +49,10 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.LayoutDirection
@@ -66,8 +70,13 @@ import com.songbook.app.data.SongTheme
 import com.songbook.app.data.Stage
 import com.songbook.app.data.Transposer
 import com.songbook.app.data.UiStyle
+import com.songbook.app.data.serialize
+import com.songbook.app.data.replaceLine
+import com.songbook.app.data.withChordsAt
+import com.songbook.app.data.wordAt
 import com.songbook.app.ui.components.BadgePill
 import com.songbook.app.ui.components.CapoDialog
+import com.songbook.app.ui.components.ChordDialog
 import com.songbook.app.ui.components.ChipPill
 import com.songbook.app.ui.components.GlassBackdrop
 import com.songbook.app.ui.components.GlassRoundButton
@@ -111,12 +120,14 @@ class ReaderActions(
     val onToggleFavorite: () -> Unit,
     val onCapo: (capo: Int, adjust: Boolean) -> Unit,
     val onShowTabs: (Boolean) -> Unit,
-    val onReading: (Int, Int, Float, Int) -> Unit,
+    val onReading: (Int, Int, Float, Int, Int) -> Unit,
     val onLyricsView: (Boolean) -> Unit,
     val onAutoScroll: (Boolean) -> Unit,
     val onScrollSpeed: (Int) -> Unit,
     val onSongTheme: (Int) -> Unit,
-    val onRate: (Float) -> Unit
+    val onRate: (Float) -> Unit,
+    /** The whole song text after a chord was typed on a word. */
+    val onBody: (String) -> Unit
 )
 
 /**
@@ -156,19 +167,22 @@ private fun SongContent(song: SongEntity, album: AlbumEntity?, settings: AppSett
     val hasTabs = remember(song.body) { SongParser.hasTabs(song.body) }
     val shift = if (song.capoAdjust && song.capo > 0) -song.capo else 0
     val tabCapo = if (song.capoAdjust) song.capo else 0
-    val sample = remember(lines) {
-        lines.filterIsInstance<SongLine.Lyric>().flatMap { l -> l.chords.map { it.name } }.distinct().take(4)
+    val songChords = remember(lines) {
+        lines.filterIsInstance<SongLine.Lyric>().flatMap { l -> l.chords.map { it.name } }.distinct().take(10)
     }
+    val sample = songChords.take(4)
     var readingDialog by remember { mutableStateOf(false) }
     var capoDialog by remember { mutableStateOf(false) }
     var speedDialog by remember { mutableStateOf(false) }
     var rateDialog by remember { mutableStateOf(false) }
+    var expanded by remember { mutableStateOf(false) }
+    var chordTarget by remember { mutableStateOf<Pair<Int, IntRange>?>(null) }
     val scroll = rememberScrollState()
     val lyricsView = settings.lyricsView
 
     if (readingDialog) {
         ReadingDialog(
-            settings.lyricsSize, settings.chordSize, settings.lineSpacing, settings.chordOffset,
+            settings.lyricsSize, settings.chordSize, settings.lineSpacing, settings.chordOffset, settings.sectionSize,
             onCommit = a.onReading, onDismiss = { readingDialog = false },
             songTheme = settings.songTheme, onSongTheme = a.onSongTheme
         )
@@ -176,6 +190,33 @@ private fun SongContent(song: SongEntity, album: AlbumEntity?, settings: AppSett
     if (capoDialog) CapoDialog(song.capo, song.capoAdjust, sample, { cp, adj -> a.onCapo(cp, adj); capoDialog = false }, { capoDialog = false })
     if (speedDialog) ScrollSpeedDialog(settings.scrollSpeed, a.onScrollSpeed, { speedDialog = false })
     if (rateDialog) RatingDialog("Rate song", song.rating, { a.onRate(it); rateDialog = false }, { rateDialog = false })
+
+    // Tap a word: write the chord that is played on it. The chord shows exactly above the first letter of the word.
+    chordTarget?.let { (lineIndex, range) ->
+        val line = lines.getOrNull(lineIndex) as? SongLine.Lyric
+        if (line == null || range.last >= line.text.length) {
+            chordTarget = null
+        } else {
+            val word = line.text.substring(range.first, range.last + 1)
+            val here = line.chords.filter { it.offset in range }.map { Transposer.chord(it.name, shift) }
+            val save: (String) -> Unit = { typed ->
+                // what is typed is the shape that is played; the song keeps the sounding chord
+                val names = typed.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }.map { Transposer.chord(it, -shift) }
+                val newLine = SongParser.serialize(SongParser.withChordsAt(line, range, names))
+                a.onBody(SongParser.replaceLine(song.body, lineIndex, newLine))
+                chordTarget = null
+            }
+            ChordDialog(
+                word = word,
+                current = here.joinToString(" "),
+                suggestions = songChords.map { Transposer.chord(it, shift) },
+                note = if (shift != 0) "Capo ${song.capo}: type the shape you play. It is saved as the sounding chord." else null,
+                onSave = save,
+                onRemove = if (here.isNotEmpty()) ({ save("") }) else null,
+                onDismiss = { chordTarget = null }
+            )
+        }
+    }
 
     // Switching between the Chords and Lyrics pages starts from the top.
     LaunchedEffect(lyricsView) { scroll.scrollTo(0) }
@@ -247,17 +288,38 @@ private fun SongContent(song: SongEntity, album: AlbumEntity?, settings: AppSett
             HeartButton(song.favorite, a.onToggleFavorite)
         }
     }
+    val onWord: (Int, IntRange) -> Unit = { lineIndex, range -> chordTarget = lineIndex to range }
     val card: @Composable ColumnScope.(Modifier) -> Unit = { m ->
         Box(m.fillMaxWidth().weight(1f).sbCard(28.dp).clip(RoundedCornerShape(28.dp))) {
             Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(horizontal = 20.dp, vertical = 4.dp)) {
                 if (lyricsView) PlainLyrics(lines, settings, c)
-                else Column(Modifier.horizontalScroll(rememberScrollState())) { SongBody(lines, settings, c, shift, tabCapo) }
+                else Column(Modifier.horizontalScroll(rememberScrollState())) { SongBody(lines, settings, c, shift, tabCapo, onWord) }
                 Box(Modifier.height(24.dp))
             }
+            // bigger window: only the lyrics fill the screen
+            Box(
+                Modifier.align(Alignment.TopEnd).padding(10.dp).size(34.dp).clip(CircleShape).background(c.track)
+                    .clickable { expanded = !expanded },
+                contentAlignment = Alignment.Center
+            ) { StrokeIcon(if (expanded) SbIcons.Collapse else SbIcons.Expand, c.mu, size = 18.dp) }
         }
     }
 
-    when (style) {
+    if (expanded) {
+        Column(Modifier.fillMaxSize().statusBarsPadding()) {
+            card(Modifier.padding(start = 8.dp, end = 8.dp, top = 8.dp))
+            Row(
+                Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically
+            ) {
+                ToolButton("−") { a.onScrollSpeed((settings.scrollSpeed - 1).coerceAtLeast(1)) }
+                ToolButton(null, if (settings.autoScroll) SbIcons.Pause else SbIcons.Play) { a.onAutoScroll(!settings.autoScroll) }
+                ToolButton("+") { a.onScrollSpeed((settings.scrollSpeed + 1).coerceAtMost(10)) }
+                ToolButton("Aa") { readingDialog = true }
+                ToolButton(null, SbIcons.Collapse) { expanded = false }
+            }
+        }
+    } else when (style) {
         // ------------------------------------------------------------------ NEW: player panel
         UiStyle.NEW -> Column(Modifier.fillMaxSize().statusBarsPadding()) {
             Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
@@ -383,6 +445,21 @@ private fun panelBrush(index: Int): Brush {
     return Brush.linearGradient(pair.map { androidx.compose.ui.graphics.lerp(it, Color.Black, 0.28f) })
 }
 
+/** Round button of the full screen reader: a short text or an icon. */
+@Composable
+private fun ToolButton(text: String?, icon: com.songbook.app.ui.components.IconSpec? = null, onClick: () -> Unit) {
+    val c = Sb.colors
+    val glass = Sb.style == UiStyle.GLASS
+    Box(
+        Modifier.size(48.dp).let { if (glass) it.glassSurface(CircleShape, strong = true) else it.background(c.cd, CircleShape) }
+            .clip(CircleShape).clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        if (icon != null) StrokeIcon(icon, c.tx, size = 22.dp, filled = icon == SbIcons.Play || icon == SbIcons.Pause)
+        else Text(text ?: "", style = sbStyle(16, FontWeight.Bold, c.tx))
+    }
+}
+
 @Composable
 private fun PlayerButton(label: String, onClick: () -> Unit) {
     Box(
@@ -414,16 +491,16 @@ private fun androidx.compose.foundation.layout.RowScope.BarItem(
 // ---- section headings ----------------------------------------------------------------------
 
 @Composable
-private fun SectionHeading(label: String, style: Int, first: Boolean, c: SbColors) {
+private fun SectionHeading(label: String, style: Int, size: Int, first: Boolean, c: SbColors) {
     val text = when (style) {
         SectionStyle.LOWER -> label.lowercase()
         SectionStyle.AS_WRITTEN -> label
         else -> label.uppercase()
     }
     val textStyle = if (style == SectionStyle.UPPER) {
-        sbStyle(11, FontWeight.SemiBold, c.ac).copy(letterSpacing = 0.14.em)
+        sbStyle(size, FontWeight.SemiBold, c.ac).copy(letterSpacing = 0.14.em)
     } else {
-        sbStyle(13, FontWeight.SemiBold, c.ac).copy(letterSpacing = 0.02.em)
+        sbStyle(size, FontWeight.SemiBold, c.ac).copy(letterSpacing = 0.02.em)
     }
     Text(text, style = textStyle, modifier = Modifier.padding(top = if (first) 14.dp else 18.dp, bottom = 8.dp))
 }
@@ -431,12 +508,19 @@ private fun SectionHeading(label: String, style: Int, first: Boolean, c: SbColor
 // ---- Chords page ---------------------------------------------------------------------------
 
 @Composable
-private fun SongBody(lines: List<SongLine>, settings: AppSettings, c: SbColors, shift: Int, tabCapo: Int) {
+private fun SongBody(
+    lines: List<SongLine>,
+    settings: AppSettings,
+    c: SbColors,
+    shift: Int,
+    tabCapo: Int,
+    onWord: (Int, IntRange) -> Unit
+) {
     var first = true
-    lines.forEach { line ->
+    lines.forEachIndexed { index, line ->
         when (line) {
-            is SongLine.Section -> SectionHeading(line.label, settings.sectionStyle, first, c)
-            is SongLine.Lyric -> ChordLyricLine(line, settings, c, shift)
+            is SongLine.Section -> SectionHeading(line.label, settings.sectionStyle, settings.sectionSize, first, c)
+            is SongLine.Lyric -> ChordLyricLine(line, settings, c, shift) { range -> onWord(index, range) }
             is SongLine.Tab -> if (settings.showTabs) {
                 Text(Transposer.tabLine(line.text, tabCapo), style = sbStyle(13, FontWeight.Medium, c.tx, mono = true), softWrap = false, modifier = Modifier.padding(bottom = 2.dp))
             }
@@ -446,14 +530,22 @@ private fun SongBody(lines: List<SongLine>, settings: AppSettings, c: SbColors, 
     }
 }
 
-/** Lyric line with chords positioned above the exact character they belong to. [shift] moves chords for the capo. */
+/**
+ * Lyric line with chords above the exact letter they belong to. The positions come from the chords as they
+ * are written, so a capo never moves a chord to another word: only the names change. Tapping a word reports it.
+ */
 @Composable
-private fun ChordLyricLine(line: SongLine.Lyric, settings: AppSettings, c: SbColors, shift: Int) {
+private fun ChordLyricLine(line: SongLine.Lyric, settings: AppSettings, c: SbColors, shift: Int, onTapWord: (IntRange) -> Unit) {
     val measurer = rememberTextMeasurer()
     val density = LocalDensity.current
-    val lyricStyle = sbStyle(settings.lyricsSize, FontWeight.Medium, c.tx).copy(lineHeight = (settings.lyricsSize * settings.lineSpacing).sp)
+    // extra line height goes below the text, so the lyric sits right under its chords
+    val tight = LineHeightStyle(alignment = LineHeightStyle.Alignment.Top, trim = LineHeightStyle.Trim.None)
+    val lyricStyle = sbStyle(settings.lyricsSize, FontWeight.Medium, c.tx)
+        .copy(lineHeight = (settings.lyricsSize * settings.lineSpacing).sp, lineHeightStyle = tight)
     val chordStyle = sbStyle(settings.chordSize, FontWeight.Medium, c.ac, mono = true)
+        .copy(lineHeight = (settings.chordSize * 1.2f).sp, lineHeightStyle = tight)
     val showChords = settings.showChords && line.chords.isNotEmpty()
+    var layoutResult by remember { mutableStateOf<TextLayoutResult?>(null) }
 
     if (!showChords && line.text.isBlank()) return
 
@@ -464,23 +556,34 @@ private fun ChordLyricLine(line: SongLine.Lyric, settings: AppSettings, c: SbCol
                 val gap = with(density) { 8.dp.toPx() }
                 var minX = 0f
                 line.chords.map { m ->
-                    val name = Transposer.chord(m.name, shift)
                     val x = layout.getHorizontalPosition(m.offset.coerceIn(0, line.text.length), true)
-                    val w = measurer.measure(AnnotatedString(name), chordStyle).size.width
+                    // room is measured with the chord as written, the capo version is drawn at the same spot
+                    val w = measurer.measure(AnnotatedString(m.name), chordStyle).size.width
                     val px = maxOf(x, minX)
                     minX = px + w + gap
-                    name to px
+                    Transposer.chord(m.name, shift) to px
                 }
             }
             // "Chord distance" setting: positive pushes the chords away from the lyric, negative pulls them closer.
-            val boxHeight = (settings.chordSize * 1.6f + settings.chordOffset).coerceAtLeast(settings.chordSize * 1.0f)
+            val boxHeight = (settings.chordSize * 1.2f + 2f + settings.chordOffset).coerceAtLeast(settings.chordSize * 0.9f)
             Box(Modifier.height(boxHeight.dp)) {
                 placed.forEach { (name, px) ->
                     Text(name, style = chordStyle, softWrap = false, maxLines = 1, modifier = Modifier.offset { IntOffset(px.roundToInt(), 0) })
                 }
             }
         }
-        if (line.text.isNotBlank()) Text(line.text, style = lyricStyle, softWrap = false, maxLines = 1) else Box(Modifier.height(4.dp))
+        if (line.text.isNotBlank()) {
+            Text(
+                line.text, style = lyricStyle, softWrap = false, maxLines = 1,
+                onTextLayout = { layoutResult = it },
+                modifier = Modifier.pointerInput(line.text) {
+                    detectTapGestures { pos ->
+                        val lr = layoutResult ?: return@detectTapGestures
+                        SongParser.wordAt(line.text, lr.getOffsetForPosition(pos))?.let(onTapWord)
+                    }
+                }
+            )
+        } else Box(Modifier.height(4.dp))
     }
 }
 
@@ -494,7 +597,7 @@ private fun PlainLyrics(lines: List<SongLine>, settings: AppSettings, c: SbColor
     lines.forEach { line ->
         when (line) {
             is SongLine.Section -> {
-                SectionHeading(line.label, settings.sectionStyle, first, c)
+                SectionHeading(line.label, settings.sectionStyle, settings.sectionSize, first, c)
                 lastWasBlank = false
                 first = false
             }

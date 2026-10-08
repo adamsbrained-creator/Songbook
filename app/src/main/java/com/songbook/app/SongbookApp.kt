@@ -19,6 +19,7 @@ class SongbookApp : Application() {
         repo = SongbookRepository(this, db.dao(), SettingsStore(this))
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             repo.seedIfNeeded()
+            repo.adoptSameCovers()
             repo.cleanupImages()
         }
     }

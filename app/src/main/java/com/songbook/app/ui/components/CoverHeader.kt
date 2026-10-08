@@ -56,7 +56,9 @@ fun CoverHeader(
     onBack: () -> Unit,
     menu: List<HeaderMenuItem>,
     onRate: () -> Unit,
-    backLabel: String = "Back"
+    backLabel: String = "Back",
+    /** Album covers to put together when the group has no picture of its own. */
+    collage: List<String> = emptyList()
 ) {
     val c = Sb.colors
     var open by remember { mutableStateOf(false) }
@@ -107,7 +109,7 @@ fun CoverHeader(
             Artwork(
                 gradient, RoundedCornerShape(30.dp),
                 Modifier.padding(horizontal = 16.dp).fillMaxWidth().height(250.dp),
-                image = image, imagePx = 900
+                image = image, imagePx = 900, collage = collage
             ) {
                 Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.62f)), startY = 250f)))
                 Column(Modifier.align(Alignment.BottomStart).padding(20.dp)) {
@@ -142,7 +144,7 @@ fun CoverHeader(
                 Text(kindLabel, style = sbStyle(15, FontWeight.SemiBold, c.ac))
                 MenuButton(glass = true)
             }
-            SquareArtwork(gradient, 150.dp, 34.dp, elevated = true, image = image)
+            SquareArtwork(gradient, 150.dp, 34.dp, elevated = true, image = image, collage = collage)
             Text(title, style = sbStyle(28, FontWeight.Bold, c.tx), textAlign = TextAlign.Center, modifier = Modifier.padding(top = 18.dp, start = 24.dp, end = 24.dp))
             Text(meta, style = sbStyle(13, color = c.mu), modifier = Modifier.padding(top = 2.dp))
             BadgePill(badge, badgeColor, Modifier.padding(top = 8.dp))
@@ -170,7 +172,7 @@ fun CoverHeader(
                 MenuButton(glass = false)
             }
             Spacer8()
-            SquareArtwork(gradient, 195.dp, 40.dp, elevated = true, image = image)
+            SquareArtwork(gradient, 195.dp, 40.dp, elevated = true, image = image, collage = collage)
             Text(title, style = sbStyle(28, FontWeight.Bold, c.tx), textAlign = TextAlign.Center, modifier = Modifier.padding(top = 24.dp, start = 24.dp, end = 24.dp))
             Text(meta, style = sbStyle(14, color = c.mu), modifier = Modifier.padding(top = 2.dp))
             BadgePill(badge, badgeColor, Modifier.padding(top = 8.dp))

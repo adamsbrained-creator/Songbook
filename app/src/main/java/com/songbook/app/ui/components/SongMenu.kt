@@ -55,11 +55,13 @@ class SongMenuActions(
     val onStage: (Int) -> Unit,
     val onRate: (Float) -> Unit,
     val onType: (String) -> Unit,
+    val onSide: (Int) -> Unit,
+    val onUseAlbumCover: () -> Unit,
     val onExport: () -> Unit,
     val onDelete: () -> Unit
 )
 
-private enum class MenuSub { None, Move, Artwork, Badge, Stage, Rate, Type, Delete }
+private enum class MenuSub { None, Move, Artwork, Badge, Stage, Rate, Type, Side, Delete }
 
 private class MenuItem(val label: String, val sub: MenuSub? = null, val run: (() -> Unit)? = null, val danger: Boolean = false)
 
@@ -68,6 +70,8 @@ fun SongMenuSheet(
     song: SongEntity,
     albumName: String?,
     albums: List<AlbumEntity>,
+    /** Names of the sides of the song's album (empty when it has none). */
+    sides: List<String>,
     actions: SongMenuActions,
     onDismiss: () -> Unit
 ) {
@@ -77,7 +81,11 @@ fun SongMenuSheet(
     // sub dialogs are shared by every look
     when (sub) {
         MenuSub.Move -> AlbumPickerDialog(albums, song.albumId, { a.onMove(it); onDismiss() }, { a.onCreateAlbumAndMove(it); onDismiss() }, { sub = MenuSub.None })
-        MenuSub.Artwork -> ArtworkDialog(song.gradient, song.image, { g, img -> a.onArtwork(g, img); onDismiss() }, { sub = MenuSub.None })
+        MenuSub.Artwork -> ArtworkDialog(
+            song.gradient, song.image, { g, img -> a.onArtwork(g, img); onDismiss() }, { sub = MenuSub.None },
+            onReset = if (song.albumId != null) ({ a.onUseAlbumCover(); onDismiss() }) else null
+        )
+        MenuSub.Side -> ChoiceDialog("Side", sides, song.side.coerceIn(0, (sides.size - 1).coerceAtLeast(0)), { a.onSide(it); onDismiss() }, { sub = MenuSub.None })
         MenuSub.Badge -> BadgeDialog(song.badge, song.badgeColor, { t, col -> a.onBadge(t, col); onDismiss() }, { sub = MenuSub.None })
         MenuSub.Stage -> StageDialog(song.stage, { a.onStage(it); onDismiss() }, { sub = MenuSub.None })
         MenuSub.Rate -> RatingDialog("Rating", song.rating, { a.onRate(it); onDismiss() }, { sub = MenuSub.None })
@@ -97,6 +105,7 @@ fun SongMenuSheet(
         if (song.stage < Stage.DONE) add(MenuItem("Open Desk", run = { a.onDesk(); onDismiss() }))
         add(MenuItem("Duplicate", run = { a.onDuplicate(); onDismiss() }))
         add(MenuItem("Move to Album", sub = MenuSub.Move))
+        if (sides.isNotEmpty()) add(MenuItem("Side", sub = MenuSub.Side))
         add(MenuItem(if (song.favorite) "Remove from Favorites" else "Add to Favorites", run = { a.onToggleFavorite(); onDismiss() }))
         add(MenuItem("Rate", sub = MenuSub.Rate))
         add(MenuItem("Set Type", sub = MenuSub.Type))
