@@ -1,0 +1,93 @@
+name: Signed build
+
+# The normal one: every push to main builds the project in this repo, signs the APK with your
+# release key and publishes it as a Release. Install it over the previous version, your songs stay.
+on:
+  push:
+    branches: [ main, master ]
+    paths-ignore:
+      - 'zips/**'
+      - '*.zip'
+      - '**.md'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: signed-build-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # needed to count commits for the version number
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Prepare version and signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
+        run: |
+          echo "VERSION_CODE=$((1000 + $(git rev-list --count HEAD)))" >> "$GITHUB_ENV"
+          echo "VERSION_NAME=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)" >> "$GITHUB_ENV"
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/songbook-release.jks"
+            echo "SIGNING_KEYSTORE_FILE=$RUNNER_TEMP/songbook-release.jks" >> "$GITHUB_ENV"
+            echo "SIGNED_WITH=release key" >> "$GITHUB_ENV"
+          else
+            echo "::warning::SIGNING_KEYSTORE_BASE64 secret is missing, signing with the old debug key instead. See SIGNING.md."
+            echo "SIGNED_WITH=old debug key" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build signed release APK
+        env:
+          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+        run: gradle assembleRelease --stacktrace
+
+      - name: Name the APK and check its signature
+        run: |
+          APK="Songbook-${VERSION_NAME}-${VERSION_CODE}.apk"
+          cp app/build/outputs/apk/release/app-release.apk "$APK"
+          echo "APK=$APK" >> "$GITHUB_ENV"
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+          "$APKSIGNER" verify --print-certs "$APK" | tee certs.txt
+          {
+            echo "### $APK"
+            echo "Signed with: **$SIGNED_WITH** · version code $VERSION_CODE"
+            echo '```'
+            grep "SHA-256" certs.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: songbook-signed-apk
+          path: ${{ env.APK }}
+          if-no-files-found: error
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ env.VERSION_CODE }}
+          target_commitish: ${{ github.sha }}
+          name: Songbook ${{ env.VERSION_NAME }} (build ${{ env.VERSION_CODE }})
+          body: Signed with the ${{ env.SIGNED_WITH }}, built from commit ${{ github.sha }}. Install it over the previous version, your songs stay.
+          files: ${{ env.APK }}
+          make_latest: true
