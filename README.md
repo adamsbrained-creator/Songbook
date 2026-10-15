@@ -1,7 +1,23 @@
-# Songbook 2.5 (Android · Kotlin · Jetpack Compose)
+# Songbook 3.0 (Android · Kotlin · Jetpack Compose)
 
 Native Android build of the Songbook mockup: Library, Song page, Song editor,
 Albums, Album and Group pages, Workflow, Favorites, New song sheet, Song menu, Settings and a first-run intro.
+
+## New in 3.0
+
+| # | What | Where |
+|---|------|-------|
+| 1 | **Coral look** replaces the old "New" look. Soft gray pages, white cards, round buttons, Outfit + serif titles, a coral plus button (new song) and a top-bar menu that moves between pages. Settings ▸ Look ▸ Interface: Old / Coral / Glass (old "New" choices open as Coral) | `ui/theme/Theme.kt`, `components/Chrome.kt`, `Surfaces.kt` |
+| 2 | **Coral reader**: round buttons, stage / stars / key / tempo chips, Aa-Chords-Lyrics-Capo-Tab track and a black player bar (auto scroll, speed, size, capo, edit) | `ui/screens/SongScreen.kt` |
+| 3 | **Key, tempo (BPM), comment and demo recordings** per song, from the reader or the song menu | `SongDialogs.kt`, `Recorder.kt`, `SongbookRoot.kt` |
+| 4 | **BPM auto scroll** (Settings ▸ Song Display): fast songs scroll faster, slow ones slower | `SongScreen.kt` |
+| 5 | **Statistics page**: progress by stage or rating, best rated, albums, history (opens, reading time), insights (words, chords, keys, tempo, demos), album filter | `ui/screens/StatsScreen.kt`, `data/Stats.kt` |
+| 6 | **Settings** reworked: "Songs finished" card, Statistics link, more greetings | `ui/screens/SettingsScreen.kt` |
+| 7 | **Icon**: the Outfit letters "sb" on coral | `res/drawable/ic_launcher_*.xml`, `AppIconArt` |
+
+The app asks for the microphone only when you record a demo.
+
+**Signed builds:** two workflows (build the repo, or build a zip dropped into `zips/`), both signed with your release key. See `SIGNING.md`.
 
 ## New in 2.5
 | # | Feature | Where |
